@@ -1,0 +1,1736 @@
+---
+title: "Transplant Results"
+author: "Vicki M. Zhang"
+date: "September 20, 2024"
+output: html_document
+---
+
+# Setting Up
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls())
+```
+
+## Packages
+
+```{r include=FALSE}
+library(here)
+library(devtools)
+library(tidyverse)
+library(lubridate)
+library(ggstar)
+library(ggmap)
+library(ggrepel)
+library(ggsn)
+library(ggpubr)
+library(rnaturalearth)
+library(car)
+library(emmeans)
+library(gmodels)
+library(drcte)
+library(sjPlot)
+library(lme4)
+library(lmerTest)
+library(multcomp)
+library(MuMIn)
+library(stargazer)
+library(patchwork)
+```
+
+## Data
+
+```{r import data}
+df_transplant <- read_csv(here("data/performance_wide.csv"))
+
+df_seed <- read_csv(here("data/seed_wide.csv"))
+```
+
+### Transplant Wrangling
+
+```{r}
+# change habitat, site, species to factor
+df_transplant <- df_transplant %>% 
+  mutate(habitat = as.factor(habitat),
+         site = as.factor(site),
+         species = as.factor(species),
+         # flowering21 = as.factor(flowering21),
+         # flowering22 = as.factor(flowering22),
+         # flowering23 = as.factor(flowering23),
+         # flowering24 = as.factor(flowering24)
+         )
+
+df_transplant <- df_transplant %>% 
+  
+  # add "1" as number of ramets for Lvul
+  mutate(ramets21 = if_else(species == "Lvul", "1", "")) %>% 
+
+# change class of performance data to numeric
+  mutate_at(c(
+    8:13, 44, # initial data
+    14:21, # 2022
+    22:30, # 2023
+    32:40, # 2024
+    41:43), # biomass
+    as.numeric) %>% 
+  
+  # change biomass to mg
+  mutate(biomass_a24 = biomass_a24 * 1000,
+         biomass_b24 = biomass_b24 * 1000, 
+         biomass24 = biomass24 * 1000)
+
+# # change NA to 0
+# df_transplant <- df_transplant %>%
+#   mutate_if(is.numeric, ~replace(., is.na(.), 0))
+```
+
+```{r survival}
+df_survival <- df_transplant %>% 
+  pivot_longer(cols = c(survival21, survival22, survival23, survival24),
+               names_to = "year_survival",
+               names_prefix = "survival",
+               values_to = "survival") %>% 
+  pivot_longer(cols = c(dead21, dead22, dead23, dead24),
+               names_to = "year_dead",
+               names_prefix = "dead",
+               values_to = "dead") %>% 
+  dplyr::select(c(id, plot, habitat, site, species, year_survival, survival, year_dead, dead)) %>% 
+  # remove duplicate years
+  filter(year_survival == year_dead) %>% 
+  mutate_at(c("year_survival", "year_dead"),
+            as.numeric) %>% 
+  mutate("year_survivalf" = as.factor(year_survival))
+```
+
+```{r summarized survival}
+survival_sum <- df_transplant %>% 
+  pivot_longer(cols = c(survival21, survival22, survival23, survival24),
+               names_to = "status",
+               values_to = "survival") %>% 
+  separate_wider_position(cols = "status",
+                          widths = c(status = 8, year = 2))%>% 
+  group_by(species, habitat, year) %>%  
+  dplyr::summarise(alive = sum(survival == 1, na.rm = TRUE),
+                   dead = sum(survival == 0, na.rm = TRUE),
+                   propsurvival = alive/(alive + dead),
+                   sd = sd(survival),
+                   se = sd/sqrt(alive))
+```
+
+
+```{r performance all years}
+df_performance <- df_transplant %>%
+  dplyr::select(id, habitat, site, species,
+                height21, ramets21, leaflength21,
+                ramets22, height22, leaflength22, numleaves22, flowering22, totalflower22,
+                ramets23, height23, leaflength23, numleaves23, flowering23, totalflower23,
+                ramets24, height24, leaflength24, numleaves24, flowering24, totalflower24,
+                biomass_a24, biomass_b24, biomass24) %>%
+  pivot_longer(cols = -c(id, habitat, site, species), # initial measurements pivoted
+               names_to = c("performance", "year"),
+               names_pattern = "([a-z]+)([0-9]+)",
+               values_to = "values") %>% 
+  mutate_at("year", as.integer) %>% 
+  mutate("year_f" = as.factor(year))
+
+
+df_performance_init <- df_transplant %>%
+  dplyr::select(id, habitat, site, species,
+                height21, ramets21, leaflength21,
+                ramets22, height22, leaflength22, numleaves22, flowering22, totalflower22,
+                ramets23, height23, leaflength23, numleaves23, flowering23, totalflower23,
+                ramets24, height24, leaflength24, numleaves24, flowering24, totalflower24,
+                biomass_a24, biomass_b24, biomass24) %>%
+  pivot_longer(cols = -c(id, habitat, site, species, 
+                         height21, leaflength21), # initial measurements kept in separate column
+               names_to = c("performance", "year"),
+               names_pattern = "([a-z]+)([0-9]+)",
+               values_to = "values") %>% 
+  mutate_at("year", as.integer) %>% 
+  mutate("year_f" = as.factor(year))
+
+df_lvul_performance <- df_performance_init %>% 
+  filter(species == "Lvul")
+
+df_pmaj_performance <- df_performance_init %>% 
+  filter(species == "Pmaj")
+
+df_toff_performance <- df_performance_init %>% 
+  filter(species == "Toff")
+  
+# # save performance long
+# write_csv(df_performance,
+#          here("data/performance.csv"))
+```
+
+### Seed Wrangling
+
+```{r}
+df_seed <- df_seed %>% 
+  pivot_longer(cols = c(number_23, number_24),
+               names_prefix = "number_",
+               names_to = "year",
+               values_to = "values") %>% 
+  mutate_at(c("habitat", "site", "species", "year"), as.factor)
+```
+
+
+# Map
+
+```{r churchill on canada map}
+churchill <- data.frame(longitude = c(-94.1650), latitude = c(58.7684))
+
+map_insetcanada <- map_data("world", region = "canada") %>% 
+  ggplot() +
+  geom_polygon(aes(x = long, y = lat, group = group),
+               fill = "white", colour = "black") +
+  geom_star(data = churchill,
+            aes(x = longitude , y = latitude),
+            size = 5,
+            fill = "red") +
+  theme(line = element_blank(),
+        axis.title = element_blank(),
+        axis.text  = element_blank(),
+        axis.ticks = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA),
+        plot.background = element_blank())
+
+map_insetcanada
+
+# ggsave("plots/map_insetcanada.svg", map_insetcanada, width = 8, height = 6)
+```
+
+```{r transplant sites coordinates}
+# 8 unique sites
+sites_transplant <- df_transplant %>% 
+  filter(plot == "1") %>% # select first plot to get one instance of each site
+  dplyr::select(habitat, site, lat, lon)
+
+
+# add common garden field experiment
+site_field <- data.frame(habitat = "CG",
+                       site = "9",
+                       lat = 58.737778,
+                       lon = -93.823611)
+
+df_sites <- rbind(sites_transplant, site_field)
+```
+
+```{r ggmap sites}
+map_churchill <- get_map(location = "Churchill Northern Studies Centre, MB, Canada",
+                         zoom = 12,
+                         maptype = "satellite",
+                         color = "bw",
+                         force = TRUE)
+
+map_mainchurchill <- ggmap(map_churchill) +
+  geom_point(data = df_sites,
+            aes(x = lon, y = lat,
+                fill = habitat),
+            shape = 21,
+            size = 3,
+            colour = "black") +
+  scale_fill_brewer(palette = "Accent",
+                    labels = c("Boreal", "Tundra", "Warming Experiment")) +
+  scalebar(location = "bottomright",
+           x.min = -93.80, x.max = -93.73,
+           y.min = 58.69, y.max = 58.73,
+           dist = 2, dist_unit = "km",
+           transform = TRUE, model = 'WGS84',
+           st.dist = 0.05, st.size = 3, st.color = "white", box.fill = c("darkgrey", "white"),
+           border.size = 0.5) +
+  labs(y = "Longitude", x = "Latitude", fill = "Location") +
+  theme_vz() +
+  theme(panel.border = element_rect(colour = "black", fill = NA),
+        )
+ 
+# ggsave(here::here("plots/map_mainchurchill.png"),  map_mainchurchill, width = 8, height = 6)
+```
+
+```{r inset and main}
+map_final <- map_mainchurchill +
+  inset(ggplotGrob(map_insetcanada),
+        xmin = -93.93, xmax = -93.83,
+        ymin = 58.75, ymax = 58.795)
+map_final
+
+# ggsave(here::here("plots/map_final.png"), map_final, width = 8, height = 6)
+```
+
+# Initial Data
+
+## Check data 
+
+```{r data assumptions}
+# normality
+shapiro.test(subset(df_transplant, species == "Lvul")$height21)
+
+shapiro.test(subset(df_transplant, species == "Pmaj")$leaflength21)
+
+shapiro.test(subset(df_transplant, species == "Toff")$leaflength21)
+
+# variance
+bartlett.test(leaflength21 ~ species, data = df_transplant) 
+bartlett.test(leaflength21 ~ interaction(species, habitat, site),
+              data = df_transplant)
+
+leveneTest(leaflength21 ~ species, data = df_transplant)
+leveneTest(leaflength21 ~ habitat*site, data = df_transplant)
+# variances of leaf length between sites had equal variances
+
+# apply(df_transplant, 2 ,shapiro.test)
+```
+
+```{r}
+wilcox.test(leaflength21 ~ habitat, data = df_transplant) 
+
+wilcox.test(height21 ~ habitat, data = df_transplant %>% filter(species == "Lvul")) 
+wilcox.test(leaflength21 ~ habitat, data = df_transplant %>% filter(species == "Pmaj"))
+wilcox.test(leaflength21 ~ habitat, data = df_transplant %>% filter(species == "Toff"))
+```
+
+## Performance Histograms
+
+```{r histogram}
+df_transplant %>% 
+  filter(species == "Lvul") %>% 
+  ggplot(aes(x = height21, fill = habitat)) +
+  geom_histogram()
+
+df_transplant %>% 
+  filter(species == "Pmaj") %>% 
+  ggplot(aes(x = leaflength21, fill = habitat)) +
+  geom_histogram()
+
+df_transplant %>% 
+  filter(species == "Toff") %>% 
+  ggplot(aes(x = leaflength21, fill = habitat)) +
+  geom_histogram()
+```
+
+# Grouped Results
+
+## Survival
+
+```{r survival per species summary}
+# annual deaths
+df_survival %>% 
+  group_by(species, habitat, year_survival, year_dead) %>% 
+  dplyr::summarise(alive = sum(survival == 1, na.rm = TRUE),
+                   dead = sum(dead == 1, na.rm = TRUE),
+                   propsurvival = alive/(alive + dead))
+  
+```
+
+```{r total survival per species point}
+fig_sppsurvival <- survival_sum %>%
+  ggplot(aes(x = year, y = propsurvival,
+             colour = species,
+             shape = habitat,
+             group = interaction(habitat, species))) +
+  geom_point(size = 3,
+             position = position_dodge(width = 0.1)) +
+  geom_line(aes(linetype = habitat),
+            colour = "black",
+            position = position_dodge(width = 0.1)) +
+  geom_errorbar(aes(ymin = ifelse(propsurvival - se < 0, 0, propsurvival - se),
+                    ymax = propsurvival + se,
+                    colour = species),
+                width = 0.3,
+                position = position_dodge(width = 0.1)) +
+  scale_x_discrete(labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_colour_brewer(palette = "Dark2",
+                      name = "Species",
+                      labels = c(expression(italic("L. vulgaris")),
+                                 expression(italic("P. major")),
+                                 expression(italic("T. officinale")))) +
+  scale_shape_manual(name = "Habitat",
+                     labels = c("Boreal", "Tundra"),
+                     values = c(15, 16)) +
+  scale_linetype(name = "Habitat",
+                 labels = c("Boreal", "Tundra")) +
+  labs(x = "Year",
+       y = "Proportion of surviving transplants") +
+  # theme_darkclassic() +
+  theme_vz() +
+  theme(legend.text.align = 0,
+        legend.position = "right"
+        )
+
+# ggsave(here::here("plots/fig_sppsurvival.jpg"), fig_sppsurvival, width = 8, height = 4)
+```
+
+## Biomass
+```{r}
+fig_sppbiomass <- df_performance %>% 
+  group_by(species, habitat, year) %>%
+  filter(!is.na(values)) %>% 
+  filter(performance == "biomass") %>% 
+  dplyr::summarise(mean = mean(values),
+                   n = n(),
+                   sd = sd(values),
+                   se = sd/sqrt(n)) %>% 
+  ggplot(aes(x = species, y = mean,
+             fill = habitat)) +
+  geom_col(aes(fill = habitat), position = position_dodge2(preserve = "single"),
+           colour = "black") +
+  geom_errorbar(aes(x = species, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(padding = 0.5, preserve = "single"),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  scale_x_discrete(name = "Species",
+                   labels = c("L. vulgaris", "P. major", "T. officinale")) + 
+  scale_y_continuous(name = "Mean biomass (mg)",
+                     expand = c(0, 0), limits = c(0, 300)) +
+  theme_vz() +
+  # theme_darkclassic() +
+  theme(axis.text.x = element_text(face = "italic"), 
+        legend.position = "right")
+
+# ggsave(here::here("plots/fig_sppbiomass.jpg"), fig_sppbiomass,
+#        width = 8, height = 6)
+```
+
+
+## Seed
+
+```{r}
+seed_sum <- df_seed %>% 
+  filter(!is.na(values)) %>% 
+  group_by(year, habitat, species) %>% 
+  summarize(total = sum(values),
+            perc = total / 2400,
+            mean = mean(values),
+            sd = sd(values),
+            se = sd/sqrt(total))
+```
+
+```{r seedlings}
+fig_seed <- seed_sum %>% 
+  ggplot(aes(x = year, y = perc,
+             colour = species,
+             shape = habitat,
+             group = interaction(habitat, species))) +
+  geom_point(size = 3,
+             position = position_dodge(width = 0.1)) +
+  geom_line(aes(linetype = habitat),
+            colour = "black",
+            position = position_dodge(width = 0.1)) +
+  geom_errorbar(aes(ymin = ifelse(perc-se < 0, 0, perc-se), ymax = se,
+                    colour = species),
+                width = 0,
+                position = position_dodge(width = 0.1)) +
+  scale_x_discrete(labels = c("2023", "2024")) +
+  scale_y_continuous(limits = c(0, 0.16)) +
+  scale_colour_brewer(palette = "Dark2",
+                      name = "Species",
+                      labels = c(expression(italic("L. vulgaris")),
+                                 expression(italic("P. major")),
+                                 expression(italic("T. officinale")))) +
+  scale_shape_manual(name = "Habitat",
+              labels = c("Boreal", "Tundra"),
+              values = c(15, 16)) +
+  scale_linetype(name = "Habitat",
+                 labels = c("Boreal", "Tundra")) +
+  labs(x = "Year",
+       y = "Proportion of emerging seedlings") +
+  theme_vz() +
+  theme(legend.text.align = 0,
+        legend.position = "right"
+        )
+
+# ggsave(here::here("plots/fig_seed.jpg"), fig_seed, width = 6, height = 6)
+```
+## Flower
+
+```{r number of flowering plants}
+flower_sum <- df_performance %>% 
+  group_by(year, species, habitat) %>% 
+  filter(performance == "flowering", values > 0) %>% 
+  dplyr::summarise(total = n())
+
+flower_sum
+```
+
+```{r number of flowering plants plot}
+fig_flower <- flower_sum %>%
+  ggplot(aes(x = habitat, y = total,
+             fill = species)) +
+  geom_col(position = position_dodge2(preserve = "single")) +
+  facet_wrap(~ year,
+             labeller = as_labeller(c("22" = "2022", "23" = "2023", "24" = "2024")),
+             scales = "free_y",
+             strip.position = "left") +
+  scale_x_discrete(name = "Habitat", labels = c("Boreal", "Tundra")) +
+  scale_y_continuous(name = "Number of flowering transplants",
+                     expand = c(0, 0), limits = c(0, 10), breaks = c(2, 4, 6, 8)) +
+  scale_fill_brewer(palette = "Dark2",
+                      name = "Species",
+                      labels = c(expression(italic("L. vulgaris")),
+                                 expression(italic("P. major")),
+                                 expression(italic("T. officinale")))) +
+  scale_shape_manual(name = "Habitat",
+                     labels = c("Boreal", "Tundra"),
+                     values = c(15, 16)) +
+  # theme_darkclassic() +
+  theme_vz() +
+  theme(legend.text.align = 0,
+        legend.position = "right",
+        strip.background = element_blank(),
+        strip.placement = "outside",
+        axis.text.x = element_text(angle = 45))
+```
+
+```{r number of flowerheads}
+flowerhead_sum <- df_performance %>% 
+  group_by(habitat, species, year) %>% 
+  filter(performance == "totalflower") %>% 
+  dplyr::summarize(total = sum(values))
+
+flowerhead_sum
+```
+
+```{r}
+# no effect on flowering
+# lvul_fixed <- lm(data = df_lvul_performance[df_lvul_performance$performance == "flowering", ],
+#                  values ~ habitat + year_f + height21)
+# summary(lvul_fixed)
+# 
+# pmaj_fixed <- lm(data = df_pmaj_performance[df_pmaj_performance$performance == "flowering", ],
+#                  values ~ habitat + year_f + height21)
+# summary(pmaj_fixed)
+# 
+# toff_fixed <- lm(data = df_toff_performance[df_toff_performance$performance == "flowering", ],
+#                  values ~ habitat + year_f + height21)
+# summary(toff_fixed)
+```
+
+
+# Individual Species Survival & Performance
+
+Summary statistics, figures, and statistical tests
+
+## *L. vulgaris*
+
+### Survival
+
+```{r total survival}
+# figure
+fig_lvultotalsurvival <- survival_sum %>% 
+  group_by(habitat) %>% 
+  filter(species == "Lvul") %>% 
+  
+  # plot
+  ggplot(aes(x = year,
+             y = propsurvival,
+             fill = habitat)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste("n =", alive)),
+            position = position_dodge(0.9),
+            vjust = -0.5) +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(name = "Total number of surviving transplants") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+
+# ggsave(here::here("plots/fig_lvultotalsurvival.jpg"), fig_lvultotalsurvival,
+#        width = 8, height = 6)
+```
+
+#### Chisquare & Fisher Test
+```{r chisquare and fisher test Lvul 2022}
+# table(df_lvul_wide$habitat, df_lvul_wide$survival22)
+# 
+# chisq.test(df_lvul_wide$habitat, df_lvul_wide$survival22)
+# 
+# fisher.test(table(df_lvul_wide$habitat, df_lvul_wide$survival22))
+```
+
+```{r chisquare and fisher test Lvul 2023}
+# table(df_lvul_wide$habitat, df_lvul_wide$survival23)
+# 
+# chisq.test(df_lvul_wide$habitat, df_lvul_wide$survival23)
+# 
+# fisher.test(table(df_lvul_wide$habitat, df_lvul_wide$survival23))
+```
+
+#### GLM
+
+```{r survival habitat*year}
+# glm
+survival_fixed1 <- glm(survival ~ habitat + year_survivalf,
+                      family = "binomial",
+                      data = df_survival[df_survival$species == "Lvul", ],
+                      subset = year_survivalf != "21")
+
+survival_fixed <- glm(survival ~ habitat * year_survivalf,
+                      family = "binomial",
+                      data = df_survival[df_survival$species == "Lvul", ],
+                      subset = year_survivalf != "21")
+summary(survival_fixed)
+Anova(survival_fixed, p.adjust.method = TRUE, type = "3", test.statistic = "Wald")
+
+# post-hoc
+surv_pairs <- emmeans(survival_fixed, ~ habitat|year_survivalf, type = "response")
+pairs(surv_pairs, reverse = "TRUE")
+
+survival_mixed1 <- glmer(data = df_survival[df_survival$species == "Lvul", ],
+                   survival ~ habitat + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+survival_mixed2 <- glmer(data = df_survival[df_survival$species == "Lvul", ],
+                   survival ~ habitat + year_survivalf + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+survival_mixed <- glmer(data = df_survival[df_survival$species == "Lvul", ],
+                   survival ~ habitat * year_survivalf + (1|site),
+                   family = "binomial",
+                   control = glmerControl(optimizer = "bobyqa"),
+                   subset = year_survivalf != "21")
+
+# model comparison
+AICc(survival_fixed, survival_fixed1, survival_mixed, survival_mixed1, survival_mixed2)
+```
+
+
+```{r}
+survival_mixed <- glmer(data = df_survival[df_survival$species == "Lvul", ],
+                   survival ~ habitat * year_survivalf + (1|site),
+                   family = "binomial",
+                   control = glmerControl(optimizer = "bobyqa"),
+                   subset = year_survivalf != "21")
+
+summary(survival_mixed)
+Anova(survival_mixed, type = "3", p.adjust.methods = TRUE, test.statistic = "Chisq")
+
+# post-hoc
+surv_pairs <- emmeans(survival_mixed, ~ habitat|year_survivalf,
+                      type = "response")
+summary(surv_pairs)
+pairs(surv_pairs, reverse = "TRUE")
+emmip(survival_mixed, habitat ~ year_survivalf)
+
+```
+
+### Performance
+
+```{r Lvul performance summary}
+lvul_perf_sum <- df_performance %>% 
+  filter(species == "Lvul" & (performance == "height" | performance == "ramets" | performance == "biomass")) %>% 
+ group_by(habitat, year_f, performance) %>% 
+  summarize(mean = mean(values, na.rm = TRUE),
+            n = n(),
+            sd = sd(values, na.rm = TRUE),
+            se = sd/sqrt(n)) %>%
+  mutate(mean = replace_na(mean, 0))
+```
+
+```{r average height and ramets boxplot}
+df_lvul_performance %>% 
+  filter(performance == "height" | 
+           performance == "ramets") %>% 
+  ggplot(aes(x = year_f, y = values, fill = habitat)) +
+  geom_boxplot(position = position_dodge2(preserve = "single")) +
+  facet_wrap(~ performance)  +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+```
+
+#### LMM
+
+```{r height models}
+# lm
+lvul_fixed1 <- lm(data = df_lvul_performance[df_lvul_performance$performance == "height", ],
+                 values ~ habitat + year_f + height21)
+
+lvul_fixed <- lm(data = df_lvul_performance[df_lvul_performance$performance == "height", ],
+                 values ~ habitat * year_f + height21)
+
+summary(lvul_fixed)
+# Anova(lvul_fixed, p.adjust.method = TRUE, type = "3")
+
+
+# lmer
+lvul_mixed1 <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "height", ],
+                 values ~ habitat * year_f + height21 + (1|site), REML = F)
+
+lvul_mixed <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "height", ],
+                 values ~ habitat + year_f + height21 + (1|site), REML = F)
+
+lvul_mixed2 <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "height", ],
+                 values ~ habitat + height21 + (1|site), REML = F)
+
+# model comparison
+AICc(lvul_fixed, lvul_fixed1, lvul_mixed, lvul_mixed1, lvul_mixed2)
+```
+
+```{r}
+# final model
+lvul_mixed <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "height", ],
+                 values ~ habitat + year_f + height21 + (1|site), REML = T)
+
+summary(lvul_mixed)
+Anova(lvul_mixed, type = "3", p.adjust.method = TRUE, test.statistic = "F")
+
+# r2
+r.squaredGLMM(lvul_mixed)
+
+# post-hoc
+lvul_emmeans <- emmeans(lvul_mixed, ~ habitat + year_f,
+                        type = "response")
+
+summary(lvul_emmeans)
+lvul_emmeans1 <- cld(lvul_emmeans, Letters = letters, decreasing = TRUE) # significance letters
+
+pairs(lvul_emmeans, adjust = "tukey")
+```
+
+
+Note: only 2 individuals in tundra 2023, both with 1 ramet
+
+```{r ramets models}
+# lm
+lvul_fixed1 <- lm(data = df_lvul_performance[df_lvul_performance$performance == "ramets", ],
+                 values ~ habitat + year_f + height21)
+
+lvul_fixed <- lm(data = df_lvul_performance[df_lvul_performance$performance == "ramets", ],
+                 values ~ habitat * year_f + height21)
+summary(lvul_fixed)
+# Anova(lvul_fixed, p.adjust.method = TRUE, type = "3")
+
+
+# lmer
+lvul_mixed1 <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "ramets", ],
+                 values ~ habitat * year_f + height21 + (1|site), REML = F)
+
+lvul_mixed <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "ramets", ],
+                 values ~ habitat + year_f + height21 + (1|site), REML = F)
+
+lvul_mixed2 <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "ramets", ],
+                 values ~ habitat + height21 + (1|site), REML = F)
+
+# model comparison
+AICc(lvul_fixed, lvul_fixed1, lvul_mixed, lvul_mixed1, lvul_mixed2)
+```
+
+```{r}
+lvul_mixed <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "ramets", ],
+                 values ~ habitat + year_f + height21 + (1|site), REML = T)
+
+summary(lvul_mixed)
+Anova(lvul_mixed, type = "3", test.statistic = "F", p.adjust.methods = TRUE)
+
+# r2
+r.squaredGLMM(lvul_mixed)
+
+
+# post-hoc
+lvul_emmeans <- emmeans(lvul_mixed, ~ habitat + year_f,
+                        type = "response")
+
+summary(lvul_emmeans)
+lvul_emmeans2 <- cld(lvul_emmeans, Letters = letters, decreasing = TRUE) # significance letters
+
+pairs(lvul_emmeans, adjust = "tukey")
+```
+
+#### Figure
+
+```{r Lvul performance plot}
+# add performance labels
+lvul_emmeans1$performance <- "height"
+lvul_emmeans2$performance <- "ramets"
+
+# bind emmeans of performance measurements
+lvul_emmeans <- rbind(lvul_emmeans1, lvul_emmeans2)
+
+# bind to summary
+emm_df <- full_join(lvul_perf_sum[lvul_perf_sum$performance != "biomass", ],
+                    lvul_emmeans,
+                    by = c("habitat", "year_f", "performance"))
+
+# remove measurements that are 0
+emm_df <- emm_df %>% 
+  mutate(group = ifelse(mean == 0, "", .group)) %>% 
+  dplyr::select(-.group)
+
+fig_lvulperf <- lvul_perf_sum %>% 
+  filter(performance == "height" | performance == "ramets") %>% 
+  ggplot(aes(x = year_f, y = mean)) +
+  geom_col(aes(fill = habitat), colour = "black", position = position_dodge2(preserve = "single")) +
+  facet_wrap(~performance,
+             labeller = as_labeller(c("height" = "Mean height (cm)",
+                                      "ramets" = "Mean number of ramets")),
+             scales = "free_y",
+             strip.position = "left") +
+  geom_errorbar(aes(x = year_f, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(preserve = "single", padding = 0.5),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(name = NULL,
+                     limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) + 
+  # geom_text(data = emm_df,
+  #           aes(y = mean + se, label = group,
+  #               vjust = -1),
+  #           position = position_dodge2(width = 0.9)) +
+  theme_vz() +
+  # theme_darkclassic() +
+  theme(strip.background = element_blank(),
+        strip.placement = "outside",
+        legend.position = "none"
+        )
+
+# ggsave(here::here("plots/fig_lvulperf.jpg"), fig_lvulperf, width = 6, height = 6)
+```
+
+### Biomass 
+```{r}
+fig_lvulmass <- lvul_perf_sum %>% 
+  filter(performance == "a" | performance == "b" | performance == "biomass") %>% 
+  ggplot(aes(x = habitat, y = mean)) +
+  facet_wrap(~performance) +
+  geom_col(aes(fill = habitat), colour = "black", position = position_dodge2(preserve = "single")) +
+  geom_errorbar(aes(x = habitat, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(padding = 0.5),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+
+# ggsave(here::here("plots/fig_lvulmass.jpg"), fig_lvulmass, width = 6, height = 6)
+```
+
+```{r biomass models}
+# no comparisons - no surviving *L. vulgaris* in tundra.
+# # lm
+# lvul_fixed1 <- lm(data = df_lvul_performance[df_lvul_performance$performance == "biomass", ],
+#                  values ~ habitat)
+# 
+# lvul_fixed <- lm(data = df_lvul_performance[df_lvul_performance$performance == "biomass", ],
+#                  values ~ habitat + height21)
+# summary(lvul_fixed)
+# # Anova(lvul_fixed, p.adjust.method = TRUE, type = "3")
+# 
+# 
+# # lmer
+# lvul_mixed1 <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "biomass", ],
+#                  values ~ habitat + (1|site))
+# 
+# lvul_mixed <- lmer(data = df_lvul_performance[df_lvul_performance$performance == "biomass", ],
+#                  values ~ habitat + height21 + (1|site))
+# summary(lvul_mixed)
+# Anova(lvul_mixed, type = "3", test.statistic = "F")
+# 
+# # r2
+# r.squaredGLMM(lvul_mixed)
+# 
+# 
+# # comparison
+# AICc(lvul_fixed, lvul_fixed1, lvul_mixed, lvul_mixed1)
+```
+
+### Seed
+
+```{r}
+seed_fixed1 <- glm(data = df_seed[df_seed$species == "Lvul", ],
+                 values ~ habitat * year,
+                 family = "poisson")
+
+seed_fixed <- glm(data = df_seed[df_seed$species == "Lvul", ],
+                 values ~ habitat + year,
+                 family = "poisson")
+
+seed_pairs <- emmeans(seed_fixed, ~ habitat)
+pairs(seed_pairs)
+
+seed_mixed1 <- glmer(data = df_seed[df_seed$species == "Lvul", ],
+                   values ~ habitat * year + (1|site),
+                   family = poisson)
+
+seed_mixed2 <- glmer(data = df_seed[df_seed$species == "Lvul", ],
+                   values ~ habitat + (1|site),
+                   family = poisson)
+
+seed_mixed <- glmer(data = df_seed[df_seed$species == "Lvul", ],
+                   values ~ habitat + year + (1|site),
+                   family = poisson)
+
+summary(seed_mixed)
+Anova(seed_mixed, type = "3", p.adjust.methods = TRUE, test.statistic = "Chisq")
+
+# model comparison
+AICc(seed_fixed1, seed_fixed, seed_mixed, seed_mixed1, seed_mixed2)
+```
+
+```{r}
+seed_fixed <- glm(data = df_seed[df_seed$species == "Lvul", ],
+                 values ~ habitat + year,
+                 family = "poisson")
+
+summary(seed_fixed)
+Anova(seed_fixed, type = "3", test.statistic = "Wald", p.adjust.methods = "TRUE")
+
+# post-hoc
+seed_pairs <- emmeans(survival_mixed, ~ habitat + year_survivalf,
+                      type = "response")
+summary(seed_pairs)
+emmip(survival_mixed, habitat ~ year_survivalf)
+```
+
+## *P. major*
+
+### Survival
+
+```{r total survival}
+fig_pmajtotalsurvival <- survival_sum %>% 
+  group_by(habitat) %>% 
+  filter(species == "Pmaj") %>% 
+  
+  # plot
+  ggplot(aes(x = year,
+             y = propsurvival,
+             fill = habitat)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste("n =", alive)),
+            position = position_dodge(0.9),
+            vjust = -0.5) +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(name = "Total number of surviving transplants") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+
+# ggsave(here::here("plots/fig_pmajtotalsurvival.jpg"), fig_pmajtotalsurvival,
+#        width = 8, height = 6)
+```
+
+
+```{r chisquare and fisher test Pmaj 2022}
+# table(df_pmaj_wide$habitat, df_pmaj_wide$survival22)
+# 
+# chisq.test(df_pmaj_wide$habitat, df_pmaj_wide$survival22)
+# 
+# fisher.test(table(df_pmaj_wide$habitat, df_pmaj_wide$survival22))
+```
+
+
+```{r chisquare and fisher test Pmaj 2023}
+# table(df_pmaj_wide$habitat, df_pmaj_wide$survival23)
+# 
+# chisq.test(df_pmaj_wide$habitat, df_pmaj_wide$survival23)
+# 
+# fisher.test(table(df_pmaj_wide$habitat, df_pmaj_wide$survival23))
+```
+
+#### GLM
+
+```{r survival habitat*year}
+# glm
+survival_fixed1 <- glm(survival ~ habitat + year_survivalf,
+                      family = "binomial",
+                      data = df_survival[df_survival$species == "Pmaj", ])
+
+survival_fixed <- glm(survival ~ habitat * year_survivalf,
+                      family = "binomial",
+                      data = df_survival[df_survival$species == "Pmaj", ],
+                      subset = year_survivalf != "21")
+
+summary(survival_fixed)
+Anova(survival_fixed, p.adjust.method = TRUE, type = "3", test.statistic = "Wald")
+
+# post-hoc
+surv_pairs <- emmeans(survival_fixed, ~ habitat|year_survivalf, type = "response")
+summary(surv_pairs)
+pairs(surv_pairs, reverse = "TRUE")
+
+
+survival_mixed1 <- glmer(data = df_survival[df_survival$species == "Pmaj", ],
+                   survival ~ habitat + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+survival_mixed2 <- glmer(data = df_survival[df_survival$species == "Pmaj", ],
+                   survival ~ habitat + year_survivalf + (1|site),
+                   family = "binomial")
+
+survival_mixed <- glmer(data = df_survival[df_survival$species == "Pmaj", ],
+                   survival ~ habitat * year_survivalf + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+# model comparison
+AICc(survival_fixed, survival_fixed1, survival_mixed, survival_mixed1, survival_mixed2)
+```
+
+```{r}
+survival_mixed <- glmer(data = df_survival[df_survival$species == "Pmaj", ],
+                   survival ~ habitat * year_survivalf + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+summary(survival_mixed)
+Anova(survival_mixed, type = "3", p.adjust.methods = TRUE)
+
+# post-hoc
+surv_pairs <- emmeans(survival_mixed, ~ habitat|year_survivalf,
+                      type = "response")
+summary(surv_pairs)
+pairs(surv_pairs, reverse = "TRUE")
+emmip(survival_mixed, habitat ~ year_survivalf)
+```
+
+
+### Performance
+
+```{r Pmaj performance summary}
+pmaj_perf_sum <- df_performance %>% 
+  filter(species == "Pmaj" & (performance == "leaflength" | performance == "numleaves" | performance == "biomass")) %>%
+  group_by(habitat, year_f, performance) %>% 
+  summarize(mean = mean(values, na.rm = TRUE),
+            n = n(),
+            sd = sd(values, na.rm = TRUE),
+            se = sd/sqrt(n)) %>%
+  mutate(mean = replace_na(mean, 0))
+```
+
+
+```{r Pmaj average leaf length and number boxplot}
+df_pmaj_performance %>% 
+  filter(performance == "leaflength" |
+           performance == "numleaves") %>% 
+  ggplot(aes(x = year_f, y = values, fill = habitat)) +
+  geom_boxplot(position = position_dodge2(preserve = "single")) +
+  facet_wrap(~ performance)  +
+  scale_x_discrete(name = "Year",
+                   labels = c("2022", "2023", "2024")) +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+```
+
+#### LMM
+
+
+```{r leaf length lm}
+# lm
+pmaj_fixed <- lm(data = df_pmaj_performance[df_pmaj_performance$performance == "leaflength", ],
+                 values ~ habitat * year_f + leaflength21)
+
+pmaj_fixed1 <- lm(data = df_pmaj_performance[df_pmaj_performance$performance == "leaflength", ],
+                 values ~ habitat + year_f + leaflength21)
+summary(pmaj_fixed)
+Anova(pmaj_fixed, p.adjust.method = TRUE, type = "3")
+
+# lmer
+pmaj_mixed1 <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "leaflength", ],
+                 values ~ habitat * year_f + leaflength21 + (1|site), REML = F)
+
+pmaj_mixed <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "leaflength", ],
+                 values ~ habitat + year_f + leaflength21 + (1|site), REML = F)
+
+pmaj_mixed2 <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "leaflength", ],
+                 values ~ habitat + leaflength21 + (1|site), REML = F)
+
+# model comparison
+AICc(pmaj_fixed, pmaj_fixed1, pmaj_mixed, pmaj_mixed1, pmaj_mixed2)
+```
+
+```{r}
+pmaj_mixed <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "leaflength", ],
+                 values ~ habitat + year_f + leaflength21 + (1|site), REML = T)
+
+summary(pmaj_mixed)
+Anova(pmaj_mixed, type = "3", p.adjust.method = TRUE, test.statistic = "F")
+
+df.residual(pmaj_mixed)
+
+# r2
+r.squaredGLMM(pmaj_mixed)
+
+
+# post-hoc
+pmaj_emmeans <- emmeans(pmaj_mixed, ~ year_f * habitat,
+                        type = "response")
+
+summary(pmaj_emmeans)
+pmaj_emmeans1 <- cld(pmaj_emmeans, Letters = letters, decreasing = TRUE) # significance letters
+
+pairs(pmaj_emmeans, adjust = "tukey")
+```
+
+
+```{r leaf num lm}
+# lm
+pmaj_fixed <- lm(data = df_pmaj_performance[df_pmaj_performance$performance == "numleaves", ],
+                 values ~ habitat * year_f + leaflength21, REML = T)
+
+summary(pmaj_fixed)
+Anova(pmaj_fixed, p.adjust.method = TRUE, type = "3")
+stargazer(pmaj_fixed, type = "text")
+
+# lmer
+pmaj_mixed1 <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "numleaves", ],
+                 values ~ habitat * year_f + leaflength21 + (1|site), REML = F)
+
+pmaj_mixed <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "numleaves", ],
+                 values ~ habitat + year_f + leaflength21 + (1|site), REML = F)
+
+pmaj_mixed2 <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "numleaves", ],
+                 values ~ habitat + leaflength21 + (1|site), REML = F)
+
+# model comparison
+AICc(pmaj_fixed, pmaj_fixed1, pmaj_mixed, pmaj_mixed1, pmaj_mixed2)
+```
+
+```{r}
+pmaj_mixed <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "numleaves", ],
+                 values ~ habitat + year_f + leaflength21 + (1|site), REML = T)
+
+summary(pmaj_mixed)
+Anova(pmaj_mixed, type = "3", p.adjust.method = TRUE, test.statistic = "F")
+
+# r2
+r.squaredGLMM(pmaj_mixed)
+
+# post-hoc
+pmaj_emmeans <- emmeans(pmaj_mixed, ~ habitat : year_f,
+                        type = "response")
+
+summary(pmaj_emmeans)
+pmaj_emmeans2 <- cld(pmaj_emmeans, Letters = letters, decreasing = TRUE) # significance letters
+
+pairs(pmaj_emmeans, adjust = "tukey")
+```
+
+#### Figure
+```{r Pmaj performance plot}
+# add performance labels
+pmaj_emmeans1$performance <- "leaflength"
+pmaj_emmeans2$performance <- "numleaves"
+
+# bind emmeans of performance measurements
+pmaj_emmeans <- rbind(pmaj_emmeans1, pmaj_emmeans2)
+
+# bind to summary
+emm_df <- full_join(pmaj_perf_sum[pmaj_perf_sum$performance != "biomass", ],
+                    pmaj_emmeans,
+                    by = c("habitat", "year_f", "performance"))
+
+# remove measurements that are 0
+emm_df <- emm_df %>% 
+  mutate(group = ifelse(mean == 0, "", .group)) %>% 
+  dplyr::select(-.group) %>% 
+  mutate(across("group", str_replace_all, pattern = " ", repl = ""))
+
+fig_pmajperf <- pmaj_perf_sum %>% 
+  filter(performance == "leaflength" | performance == "numleaves") %>% 
+  ggplot(aes(x = year_f, y = mean)) +
+  geom_col(aes(fill = habitat), colour = "black", position = position_dodge2(preserve = "single")) +
+  facet_wrap(~performance,
+             labeller = as_labeller(c("leaflength" = "Mean leaf length (cm)",
+                                      "numleaves" = "Mean number of leaves")),
+             scales = "free_y",
+             strip.position = "left") +
+  geom_errorbar(aes(x = year_f, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(preserve = "single", padding = 0.5),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(name = NULL,
+                     limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) + 
+  # geom_text(data = emm_df,
+  #           aes(y = mean + se, label = group,
+  #               vjust = -1),
+  #           position = position_dodge2(width = 0.9)) +
+  theme_vz() +
+  # theme_darkclassic() +
+  theme(strip.background = element_blank(),
+        strip.placement = "outside",
+        legend.position = "none")
+
+# ggsave(here::here("plots/fig_pmajperf.jpg"), fig_pmajperf, width = 6, height = 6)
+```
+
+### Biomass
+
+```{r}
+fig_pmajmass <- pmaj_perf_sum %>% 
+  filter(performance == "biomass") %>% 
+  ggplot(aes(x = habitat, y = mean)) +
+  geom_col(aes(fill = habitat), colour = "black", position = position_dodge2(preserve = "single")) +
+  geom_errorbar(aes(x = habitat, ymin = mean - se, ymax = mean + se), width = 0.5,
+                position = position_dodge2(preserve = "single"),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  scale_x_discrete(name = "Habitat", labels = c("Boreal", "Tundra")) +
+  scale_y_continuous(name = "Mean biomass (mg)", 
+                     expand = c(0, 0), limits = c(0, 130)) +
+  theme_vz()
+```
+
+
+```{r biomass models}
+# lm
+pmaj_fixed1 <- lm(data = df_pmaj_performance[df_pmaj_performance$performance == "biomass", ],
+                 values ~ habitat)
+
+pmaj_fixed <- lm(data = df_pmaj_performance[df_pmaj_performance$performance == "biomass", ],
+                 values ~ habitat + leaflength21)
+summary(pmaj_fixed)
+# Anova(pmaj_fixed, p.adjust.method = TRUE, type = "3")
+
+
+# lmer
+pmaj_mixed1 <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "biomass", ],
+                 values ~ habitat + (1|site), REML = F)
+
+pmaj_mixed <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "biomass", ],
+                 values ~ habitat + leaflength21 + (1|site), REML = F)
+
+# comparison
+AICc(pmaj_fixed, pmaj_fixed1, pmaj_mixed, pmaj_mixed1)
+```
+
+```{r}
+pmaj_mixed <- lmer(data = df_pmaj_performance[df_pmaj_performance$performance == "biomass", ],
+                 values ~ habitat + leaflength21 + (1|site), REML = T)
+
+summary(pmaj_mixed)
+Anova(pmaj_mixed, type = "3", test.statistic = "F", p.adjust.methods = TRUE)
+
+# r2
+r.squaredGLMM(pmaj_mixed)
+
+```
+
+### Seed
+```{r}
+seed_fixed1 <- glm(data = df_seed[df_seed$species == "Pmaj", ],
+                 values ~ habitat * year,
+                 family = "poisson")
+
+seed_fixed <- glm(data = df_seed[df_seed$species == "Pmaj", ],
+                 values ~ habitat + year,
+                 family = "poisson")
+summary(seed_fixed)
+Anova(seed_fixed, type = "3", test.statistic = "Wald", p.adjust.methods = TRUE)
+
+seed_pairs <- emmeans(seed_fixed, ~ habitat)
+pairs(seed_pairs)
+
+seed_mixed1 <- glmer(data = df_seed[df_seed$species == "Pmaj", ],
+                   values ~ habitat * year + (1|site),
+                   family = poisson)
+
+seed_mixed2 <- glmer(data = df_seed[df_seed$species == "Pmaj", ],
+                   values ~ habitat + (1|site),
+                   family = poisson)
+
+seed_mixed <- glmer(data = df_seed[df_seed$species == "Pmaj", ],
+                   values ~ habitat + year + (1|site),
+                   family = poisson)
+summary(seed_mixed)
+Anova(seed_mixed, type = "3", p.adjust.methods = TRUE, test.statistic = "Chisq")
+
+# model comparison
+AICc(seed_fixed1, seed_fixed, seed_mixed, seed_mixed1, seed_mixed2)
+```
+
+```{r}
+seed_fixed <- glm(data = df_seed[df_seed$species == "Pmaj", ],
+                 values ~ habitat + year,
+                 family = "poisson")
+
+summary(seed_fixed)
+Anova(seed_fixed, type = "3", test.statistic = "Wald", p.adjust.methods = TRUE)
+
+# post-hoc
+seed_pairs <- emmeans(survival_mixed, ~ habitat + year_survivalf,
+                        type = "response")
+summary(seed_pairs)
+emmip(survival_mixed, habitat ~ year_survivalf)
+```
+
+## *T. officinale*
+
+### Survival
+
+```{r total survival}
+fig_tofftotalsurvival <- survival_sum %>% 
+  group_by(habitat) %>% 
+  filter(species == "Toff") %>% 
+  
+  # plot
+  ggplot(aes(x = year,
+             y = propsurvival,
+             fill = habitat)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste("n =", alive)),
+            position = position_dodge(0.9),
+            vjust = -0.5) +
+  scale_x_discrete(name = "Year",
+                   labels = c("20221", "2022", "2023", "2024")) +
+  scale_y_continuous(name = "Total number of surviving transplants") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+
+# ggsave(here::here("plots/fig_tofftotalsurvival.jpg"), fig_tofftotalsurvival,
+#        width = 8, height = 6)
+```
+
+
+```{r chisquare and fisher test Toff 2022}
+# table(df_toff_wide$habitat, df_toff_wide$survival22)
+# 
+# chisq.test(df_toff_wide$habitat, df_toff_wide$survival22)
+# 
+# fisher.test(table(df_toff_wide$habitat, df_toff_wide$survival22))
+```
+
+
+```{r chisquare and fisher test Toff 2023}
+# table(df_toff_wide$habitat, df_toff_wide$survival23)
+# 
+# chisq.test(df_toff_wide$habitat, df_toff_wide$survival23)
+# 
+# fisher.test(table(df_toff_wide$habitat, df_toff_wide$survival23))
+
+```
+
+#### GLM
+
+```{r survival habitat*year}
+# glm
+survival_fixed1 <- glm(survival ~ habitat + year_survivalf,
+                      family = "binomial",
+                      data = df_survival[df_survival$species == "Toff", ],
+                      subset = year_survivalf != "21")
+
+survival_fixed <- glm(survival ~ habitat * year_survivalf,
+                      family = "binomial",
+                      data = df_survival[df_survival$species == "Toff", ],
+                      subset = year_survivalf != "21")
+
+summary(survival_fixed)
+Anova(survival_fixed, p.adjust.method = TRUE, type = "3", test.statistic = "Wald")
+
+# post-hoc
+surv_pairs <- emmeans(survival_fixed, ~ habitat|year_survivalf, type = "response")
+summary(surv_pairs)
+pairs(surv_pairs, reverse = "TRUE")
+
+
+survival_mixed1 <- glmer(data = df_survival[df_survival$species == "Toff", ],
+                   survival ~ habitat + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+survival_mixed2 <- glmer(data = df_survival[df_survival$species == "Toff", ],
+                   survival ~ habitat + year_survivalf + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+survival_mixed <- glmer(data = df_survival[df_survival$species == "Toff", ],
+                   survival ~ habitat * year_survivalf + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+# model comparison
+AICc(survival_fixed, survival_fixed1, survival_mixed, survival_mixed1, survival_mixed2)
+```
+
+```{r}
+survival_mixed <- glmer(data = df_survival[df_survival$species == "Toff", ],
+                   survival ~ habitat * year_survivalf + (1|site),
+                   family = "binomial",
+                   subset = year_survivalf != "21")
+
+summary(survival_mixed)
+Anova(survival_mixed, type = "3")
+
+# post-hoc
+surv_pairs <- emmeans(survival_mixed, ~ habitat|year_survivalf,
+                        type = "response")
+summary(surv_pairs)
+pairs(surv_pairs, reverse = "TRUE")
+emmip(survival_mixed, habitat ~ year_survivalf)
+
+```
+
+
+### Performance
+
+```{r Toff performance summary}
+toff_perf_sum <- df_performance %>% 
+  filter(species == "Toff" & (performance == "leaflength" | performance == "numleaves" | performance == "biomass")) %>%
+  group_by(habitat, year_f, performance) %>% 
+  summarize(mean = mean(values, na.rm = TRUE),
+            n = n(),
+            sd = sd(values, na.rm = TRUE),
+            se = sd/sqrt(n)) %>%
+  mutate(mean = replace_na(mean, 0))
+```
+
+```{r Toff average leaf length and number boxplot}
+df_toff_performance %>% 
+  filter(performance == "leaflength" |
+           performance == "numleaves") %>% 
+  ggplot(aes(x = year, y = values, fill = habitat)) +
+  geom_boxplot(position = position_dodge2(preserve = "single")) +
+  facet_wrap(~ performance)  +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+```
+
+#### LMM
+
+```{r leaf length lm}
+# lm
+toff_fixed <- lm(data = df_toff_performance[df_toff_performance$performance == "leaflength", ],
+                 values ~ I(habitat) * year_f + leaflength21)
+
+toff_fixed1 <- lm(data = df_toff_performance[df_toff_performance$performance == "leaflength", ],
+                 values ~ I(habitat) + year_f + leaflength21)
+
+summary(toff_fixed)
+Anova(toff_fixed, p.adjust.method = TRUE, type = "3", singular.ok = TRUE)
+
+stargazer(toff_fixed, type = "text")
+
+# lmer
+toff_mixed1 <- lmer(data = df_toff_performance[df_toff_performance$performance == "leaflength", ],
+                   values ~ habitat * year_f + leaflength21 + (1|site), REML = F)
+
+toff_mixed <- lmer(data = df_toff_performance[df_toff_performance$performance == "leaflength", ],
+                   values ~ habitat + year_f + leaflength21 + (1|site), REML = F)
+
+toff_mixed2 <- lmer(data = df_toff_performance[df_toff_performance$performance == "leaflength", ],
+                   values ~ habitat + leaflength21 + (1|site), REML = F)
+
+# model comparison
+AICc(toff_fixed, toff_fixed1, toff_mixed, toff_mixed1, toff_mixed2)
+```
+
+```{r}
+toff_mixed <- lmer(data = df_toff_performance[df_toff_performance$performance == "leaflength", ],
+                   values ~ habitat + year_f + leaflength21 + (1|site), REML = T)
+
+summary(toff_mixed)
+Anova(toff_mixed, type = "3", p.adjust.method = TRUE, test.statistic = "F")
+
+df.residual(toff_mixed)
+
+# r2
+r.squaredGLMM(toff_mixed)
+
+
+# post-hoc
+toff_emmeans <- emmeans(toff_mixed, ~ habitat + year_f,
+                        type = "response")
+
+summary(toff_emmeans)
+toff_emmeans1 <- cld(toff_emmeans, Letters = letters, decreasing = TRUE) # significance letters
+
+pairs(toff_emmeans, adjust = "tukey")
+```
+
+```{r leaf number lm}
+# lm
+toff_fixed <- lm(data = df_toff_performance[df_toff_performance$performance == "numleaves", ],
+                 values ~ I(habitat) * year_f + leaflength21)
+
+toff_fixed1 <- lm(data = df_toff_performance[df_toff_performance$performance == "numleaves", ],
+                 values ~ I(habitat) + year_f + leaflength21)
+
+summary(toff_fixed)
+Anova(toff_fixed, p.adjust.method = TRUE, type = "3", singular.ok = TRUE)
+
+stargazer(toff_fixed, type = "text")
+
+# lmer
+toff_mixed1 <- lmer(data = df_toff_performance[df_toff_performance$performance == "numleaves", ],
+                   values ~ habitat * year_f + leaflength21 + (1|site), REML = F)
+
+toff_mixed <- lmer(data = df_toff_performance[df_toff_performance$performance == "numleaves", ],
+                   values ~ habitat + year_f + leaflength21 + (1|site), REML = F)
+
+toff_mixed2 <- lmer(data = df_toff_performance[df_toff_performance$performance == "numleaves", ],
+                   values ~ habitat + leaflength21 + (1|site), REML = F)
+
+# model comparison
+AICc(toff_fixed, toff_fixed1, toff_mixed, toff_mixed1, toff_mixed2)
+```
+
+```{r}
+toff_mixed <- lmer(data = df_toff_performance[df_toff_performance$performance == "numleaves", ],
+                   values ~ habitat + year_f + leaflength21 + (1|site), REML = T)
+
+summary(toff_mixed)
+Anova(toff_mixed, type = "3", test.statistic = "F", p.adjust.methods = TRUE)
+
+df.residual(toff_mixed)
+
+# r2
+r.squaredGLMM(toff_mixed)
+
+
+# post-hoc
+toff_emmeans <- emmeans(toff_mixed, ~ habitat + year_f,
+                        type = "response")
+
+summary(toff_emmeans)
+toff_emmeans2 <- cld(toff_emmeans, Letters = letters, decreasing = TRUE) # significance letters
+
+pairs(toff_emmeans, adjust = "tukey")
+```
+
+#### Figure
+```{r Toff performance plot}
+# add performance labels
+toff_emmeans1$performance <- "leaflength"
+toff_emmeans2$performance <- "numleaves"
+
+# bind emmeans of performance measurements
+toff_emmeans <- rbind(toff_emmeans1, toff_emmeans2)
+
+# bind to summary
+emm_df <- full_join(toff_perf_sum[toff_perf_sum$performance != "biomass", ],
+                    toff_emmeans,
+                    by = c("habitat", "year_f", "performance"))
+
+# remove measurements that are 0
+emm_df <- emm_df %>% 
+  mutate(group = ifelse(mean == 0, "", .group)) %>% 
+  dplyr::select(-.group)
+
+fig_toffperf <- toff_perf_sum %>% 
+  filter(performance == "leaflength" | performance == "numleaves") %>% 
+  ggplot(aes(x = year_f, y = mean)) +
+  geom_col(aes(fill = habitat), colour = "black", position = position_dodge2(preserve = "single")) +
+  facet_wrap(~performance,
+             labeller = as_labeller(c("leaflength" = "Mean leaf length (cm)",
+                                      "numleaves" = "Mean number of leaves")),
+             scales = "free_y",
+             strip.position = "left") +
+  geom_errorbar(aes(x = year_f, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(preserve = "single", padding = 0.5),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(name = NULL,
+                     limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) + 
+  # geom_text(data = emm_df,
+  #           aes(y = mean + se, label = group, 
+  #               vjust = -1),
+  #           position = position_dodge2(width = 0.9)) +
+  theme_vz() +
+  # theme_darkclassic() +
+  theme(strip.background = element_blank(),
+        strip.placement = "outside",
+        legend.position = "none")
+
+# ggsave(here::here("plots/fig_toffperf.jpg"), fig_toffperf, width = 6, height = 6)
+```
+
+```{r}
+fig_toffperf <- toff_perf_sum %>% 
+  filter(performance == "leaflength" | performance == "numleaves") %>% 
+  ggplot(aes(x = year_f, y = mean)) +
+  geom_col(aes(fill = habitat), position = position_dodge2(preserve = "single")) +
+  facet_wrap(~performance,
+             labeller = as_labeller(c("leaflength" = "Mean leaf length (cm)",
+                                      "numleaves" = "Mean number of leaves")),
+             scales = "free_y",
+             strip.position = "left") +
+  geom_errorbar(aes(x = year_f, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(preserve = "single", padding = 0.5),
+                colour = "white") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  scale_x_discrete(name = "Year",
+                   labels = c("2021", "2022", "2023", "2024")) +
+  scale_y_continuous(name = NULL,
+                     limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) + 
+  geom_text(data = emm_df,
+            aes(y = mean + se, label = group,
+                vjust = -1),
+            position = position_dodge2(width = 0.9),
+            colour = "red") +
+  theme_vz() +
+  # theme_darkclassic() +
+  theme(strip.background = element_blank(),
+        strip.placement = "outside",
+        legend.position = "none")
+```
+
+### Biomass
+
+```{r}
+fig_toffmass <- toff_perf_sum %>% 
+  filter(performance == "a" | performance == "b" | performance == "biomass") %>% 
+  ggplot(aes(x = habitat, y = mean)) +
+  facet_wrap(~performance) +
+  geom_col(aes(fill = habitat), position = position_dodge2(preserve = "single")) +
+  geom_errorbar(aes(x = habitat, ymin = mean - se, ymax = mean + se),
+                position = position_dodge2(padding = 0.5),
+                colour = "black") +
+  scale_fill_brewer(name = "Habitat",
+                    palette = "Accent",
+                    labels = c("Boreal", "Tundra")) +
+  theme_vz()
+```
+
+
+```{r biomass models}
+# no comparisons - no surviving *T. officinale* in tundra.
+# # lm
+# toff_fixed1 <- lm(data = df_toff_performance[df_toff_performance$performance == "biomass", ],
+#                  values ~ habitat)
+# 
+# toff_fixed <- lm(data = df_toff_performance[df_toff_performance$performance == "biomass", ],
+#                  values ~ habitat + leaflength21)
+# summary(toff_fixed)
+# # Anova(toff_fixed, p.adjust.method = TRUE, type = "3")
+# 
+# 
+# # lmer
+# toff_mixed1 <- lmer(data = df_toff_performance[df_toff_performance$performance == "biomass", ],
+#                  values ~ habitat + (1|site))
+# 
+# toff_mixed <- lmer(data = df_toff_performance[df_toff_performance$performance == "biomass", ],
+#                  values ~ habitat + leaflength21 + (1|site))
+# summary(toff_mixed)
+# Anova(toff_mixed, type = "3", test.statistic = "F")
+# 
+# # r2
+# r.squaredGLMM(toff_mixed)
+# 
+# 
+# # comparison
+# AICc(toff_fixed, toff_fixed1, toff_mixed, toff_mixed1)
+```
+
+### Seed
+
+```{r}
+seed_fixed1 <- glm(data = df_seed[df_seed$species == "Toff", ],
+                 values ~ habitat * year,
+                 contrasts = list(habitat = contr.sum, year = contr.sum),
+                 family = "poisson")
+
+seed_fixed <- glm(data = df_seed[df_seed$species == "Toff", ],
+                 values ~ habitat + year,
+                 # contrasts = list(habitat = contr.sum, year = contr.sum),
+                 family = "poisson")
+
+summary(seed_fixed)
+Anova(seed_fixed, type = "3", test.statistic = "Wald", p.adjust.methods = TRUE)
+
+seed_pairs <- emmeans(seed_fixed, ~ habitat)
+pairs(seed_pairs)
+
+seed_mixed1 <- glmer(data = df_seed[df_seed$species == "Toff", ],
+                   values ~ habitat * year + (1|site),
+                   family = poisson)
+
+seed_mixed2 <- glmer(data = df_seed[df_seed$species == "Toff", ],
+                   values ~ habitat + (1|site),
+                   family = poisson)
+
+seed_mixed <- glmer(data = df_seed[df_seed$species == "Toff", ],
+                   values ~ habitat + year + (1|site),
+                   family = poisson)
+summary(seed_mixed)
+Anova(seed_mixed, type = "3", p.adjust.methods = TRUE, test.statistic = "Chisq")
+
+# model comparison
+AICc(seed_fixed1, seed_fixed, seed_mixed, seed_mixed1, seed_mixed2)
+```
+
+```{r}
+seed_fixed <- glm(data = df_seed[df_seed$species == "Toff", ],
+                 values ~ habitat + year,
+                 # contrasts = list(habitat = contr.sum, year = contr.sum),
+                 family = "poisson")
+
+summary(seed_fixed)
+Anova(seed_fixed, type = "3", test.statistic = "Wald", p.adjust.methods = TRUE)
+
+# post-hoc
+seed_pairs <- emmeans(survival_mixed, ~ habitat + year_survivalf,
+                        type = "response")
+summary(seed_pairs)
+emmip(survival_mixed, habitat ~ year_survivalf)
+```
+
+## Figures
+
+Seed and survival
+```{r}
+fig_seedsurv <- fig_seed + fig_sppsurvival +
+  plot_layout(guides = "collect", nrow = 2) +
+  plot_annotation(tag_levels = c("A", "B")) & 
+  theme(legend.position = "right", legend.direction = "vertical",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10))
+```
+
+Performance
+```{r}
+fig_sppperf <- fig_lvulperf + fig_pmajperf + fig_toffperf +
+  plot_layout(guides = "collect", nrow = 3) +
+  plot_annotation(tag_levels = c("A", "B", "C")) & 
+  theme(legend.position = "right", legend.direction = "vertical",
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 10))
+```
+
+
+
+
+```{r number of flowerheads plot}
+ggplot(data = flowerhead_sum,
+       aes(x = habitat, y = total, fill = habitat)) +
+  facet_wrap(~ species) +
+  geom_col() +
+  theme_vz()
+```
+

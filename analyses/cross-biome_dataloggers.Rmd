@@ -1,0 +1,388 @@
+---
+title: "Datalogger Results"
+author: "Vicki M. Zhang"
+date: "October 29, 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Setting up
+
+```{r library}
+library(here)
+library(tidyverse)
+library(lubridate)
+library(car)
+library(patchwork)
+```
+
+
+## Read in data
+```{r}
+data23 <- read_csv(here("data/dataloggers/summer2023/datalogger23.csv"))
+data24 <- read_csv(here("data/dataloggers/summer2024/datalogger24.csv"))
+```
+
+### Wrangle
+
+```{r}
+# 2023
+## change classes
+data23 <- data23 %>% 
+  mutate_at(c("location", "block"), as.factor) %>% 
+  mutate(Date = as.Date(Date, format = "%Y/%m/%d"))
+
+## set dates
+data23 <- data23 %>% 
+  filter(month == 6 & day >= 27 |
+           month == 7 |
+           month == 8 & day < 21)
+
+# 2024
+## change classes
+data24 <- data24 %>% 
+  mutate_at(c("location", "block"), as.factor) %>% 
+  mutate(Date = as.Date(Date, format = "%Y/%m/%d"))
+
+## set dates
+data24 <- data24 %>% 
+  filter(month == 6 & day >= 27 |
+           month == 7 |
+           month == 8 & day < 21)
+```
+
+
+# 2023 
+
+```{r}
+data23 %>% 
+  group_by(location) %>% 
+  tally()
+```
+
+Datalogger on site "Tundra2" had no data. This iButton was from 2022, did not work this summer.
+
+## Hourly & Daytime df
+
+```{r average hourly and daily for 2 locations}
+# hourly averages
+hour_df <- data23 %>% 
+  group_by(location, Date, month, day, hour) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+# daily averages
+daily_df <- data23 %>% 
+  group_by(location, Date, month, day) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+# daytime temperatures by hour
+daily_day_df <- data23 %>% 
+  group_by(location, Date, month, day, hour) %>% 
+  filter(!is.na(temp)) %>% 
+  filter(9 < hour & hour < 21) %>% 
+  summarize(temp = mean(temp))
+```
+
+```{r wide}
+# hourly averages
+
+hour_df_wide <- hour_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = location, values_from = temp)
+
+# daily averages
+daily_df_wide <- daily_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = location, values_from = temp)
+```
+
+
+<!-- ```{r save averages as df} -->
+<!-- write_csv(hour_df, here("data/dataloggers/summer2023/datalogger23_hourly_average_df.csv")) -->
+<!-- write_csv(daily_df, here("data/dataloggers/summer2023/datalogger23_daily_average_df.csv")) -->
+<!-- ``` -->
+
+## Summary Statistics
+
+```{r}
+# summary statistics
+daily_df %>% 
+  group_by(location) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+# summary statistics for daytime temperature
+hour_df %>% 
+  filter(9 < hour & hour < 21) %>% 
+  group_by(location) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+
+# summary statistics for afternoon temperature
+hour_df %>% 
+  filter(14 < hour & hour < 16) %>% 
+  group_by(location, hour) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+```
+
+
+
+```{r average temp, mean}
+fig_dailymean23_boxplot <- daily_df %>%
+  ggplot(aes(x = location, y = temp, colour = location)) +
+  geom_boxplot(aes(middle = mean(temp))) +
+  geom_point(aes(colour = location), alpha = 0.5, size = 0.5,
+             position = "jitter") +
+  scale_colour_brewer(palette = "Accent") +
+  labs(x = "Treatment",
+       y = "Temperature (°C)") +
+  theme_vz()
+
+# boxplot with mean (not median) plotted as line
+# ggsave(here::here("plots/fig_dailymean23_boxplot.jpg"), fig_dailymean23_boxplot,
+#        width = 8, height = 4)
+```
+
+time = c(9:21)
+9 AM to 9 PM
+```{r}
+time <- 15
+
+fig_hour23 <- hour_df %>% 
+  group_by(Date, hour, location) %>% 
+  filter(hour == time) %>% 
+  ggplot(aes(x = Date, y = temp, colour = location)) +
+  geom_point(alpha = 0.5, size = 0.2) +
+  geom_line() +
+  scale_colour_brewer(name = "Transplant Location", palette = "Accent") +
+  scale_y_continuous(name = "Temperature (°C)") +
+  theme_vz()
+
+# ggsave(here::here("plots/fig_hour23.jpg"), fig_hour23, width = 8, height = 4)
+```
+
+## Daily Moving Average
+
+```{r}
+fig_daily_avg23 <- daily_df %>%
+  ggplot(aes(x = Date, y = temp, colour = location)) +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(name = "Transplant Location", palette = "Accent",
+                      labels = c("Boreal", "Tundra")) +
+  scale_x_date(name = "Date (2023)",
+               limits = as.Date(c("2023-06-08", "2023-08-20"))) +
+  scale_y_continuous(name = "Temperature (°C)",
+                     expand = c(0, 0), limits = c(0, 30)) +
+  # theme_darkclassic() 
+  theme_vz() +
+  theme(legend.position = "none")
+
+# ggsave(here::here("plots/fig_daily_avg23.jpg"), fig_daily_avg23, width = 8, height = 4)
+```
+
+```{r error with hour}
+fig_daily_day_avg <- daily_day_df %>%
+  ggplot(aes(x = hour, y = temp, colour = location)) +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(name = "Transplant Location", palette = "Accent") +
+  scale_y_continuous(name = "Temperature (°C)") +
+  theme_vz()
+
+fig_daily_day_avg
+```
+
+# 2024 
+
+```{r}
+data24 %>% 
+  group_by(location) %>% 
+  tally()
+```
+
+Datalogger on site "Tundra2" had no data. This iButton was from 2022, did not work this summer.
+
+## Hourly & Daytime df
+
+```{r average hourly and daily for 2 locations}
+# hourly averages
+hour_df <- data24 %>% 
+  group_by(location, Date, month, day, hour) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+# daily averages
+daily_df <- data24 %>% 
+  group_by(location, Date, month, day) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+# daytime temperatures by hour
+daily_day_df <- data24 %>% 
+  group_by(location, Date, month, day, hour) %>% 
+  filter(!is.na(temp)) %>% 
+  filter(9 < hour & hour < 21) %>% 
+  summarize(temp = mean(temp))
+```
+
+```{r wide}
+# hourly averages
+hour_df_wide <- hour_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = location, values_from = temp)
+
+# daily averages
+daily_df_wide <- daily_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = location, values_from = temp)
+```
+
+
+<!-- ```{r save averages as df} -->
+<!-- write_csv(hour_df, here("data/dataloggers/summer2024/datalogger24_hourly_average_df.csv")) -->
+<!-- write_csv(daily_df, here("data/dataloggers/summer2024/datalogger24_daily_average_df.csv")) -->
+<!-- ``` -->
+
+
+## Summary Statistics
+
+```{r}
+# summary statistics
+daily_df %>% 
+  group_by(location) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+# summary statistics for daytime temperature
+hour_df %>% 
+  filter(9 < hour & hour < 21) %>% 
+  group_by(location) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+
+# summary statistics for afternoon temperature
+hour_df %>% 
+  filter(14 < hour & hour < 16) %>% 
+  group_by(location, hour) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+```
+
+
+
+```{r average temp, mean}
+fig_dailymean24_boxplot <- daily_df %>%
+  ggplot(aes(x = location, y = temp, colour = location)) +
+  geom_boxplot(aes(middle = mean(temp))) +
+  geom_point(aes(colour = location), alpha = 0.5, size = 0.5,
+             position = "jitter") +
+  scale_colour_brewer(palette = "Accent") +
+  labs(x = "Treatment",
+       y = "Temperature (°C)") +
+  theme_vz()
+
+# boxplot with mean (not median) plotted as line
+# ggsave(here::here("plots/fig_dailymean24_boxplot.jpg"), fig_dailymean24_boxplot,
+#        width = 8, height = 4)
+```
+
+
+time = c(9:21)
+9 AM to 9 PM
+```{r}
+time <- 15
+
+fig_hour24 <- hour_df %>% 
+  group_by(Date, hour, location) %>% 
+  filter(hour == time) %>% 
+  ggplot(aes(x = Date, y = temp, colour = location)) +
+  geom_point(alpha = 0.5, size = 0.2) +
+  geom_line() +
+  scale_colour_brewer(name = "Transplant Location", palette = "Accent") +
+  scale_y_continuous(name = "Temperature (°C)") +
+  theme_vz()
+
+# ggsave(here::here("plots/fig_hour24.jpg"), fig_hour24, width = 8, height = 4)
+```
+
+## Daytime Averages
+
+```{r}
+fig_daily_avg24 <- daily_df %>%
+  ggplot(aes(x = Date, y = temp, colour = location)) +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(name = "Transplant Location", palette = "Accent",
+                      labels = c("Boreal", "Tundra"),
+                      guide = "none") +
+  scale_x_date(name = "Date (2024)",
+               limits = as.Date(c("2024-06-08", "2024-08-20"))) +
+  scale_y_continuous(name = "Temperature (°C)",
+                     expand = c(0, 0), limits = c(0, 30)) +
+  # theme_darkclassic()
+  theme_vz()
+
+# ggsave(here::here("plots/fig_daily_avg24.jpg"), fig_daily_avg24, width = 8, height = 4)
+```
+
+```{r error with hour}
+fig_daily_day_avg <- daily_day_df %>%
+  ggplot(aes(x = hour, y = temp, colour = location)) +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(name = "Transplant Location", palette = "Accent") +
+  scale_y_continuous(name = "Temperature (°C)") +
+  theme_vz()
+
+fig_daily_day_avg
+```
+
+# Combined Figure
+
+```{r}
+fig_dispersaltemp <- fig_daily_avg23 + fig_daily_avg24 +
+  plot_layout(guides = "collect", ncol = 2) +
+  plot_annotation(tag_levels = c("A", "B")) &
+  # theme_darkclassic() +
+  theme_vz()
+```
+
+
+# Other
+datalogger: graph, calculate daily mean, max, min temperatures; look at how other research report datalogger data
+
+
+```{r}
+daily_day_df
+
+leveneTest(data = daily_day_df, temp ~ location)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

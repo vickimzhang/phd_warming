@@ -1,0 +1,183 @@
+---
+title: "6 - Soil Moisture in Warming Experiment"
+author: "Vicki M. Zhang"
+date: "January 23, 2024"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Set Up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warnings = F)
+
+# packages
+library(tidyverse)
+library(car)
+library(emmeans)
+library(here)
+```
+
+
+## Data
+
+I loaded my soil moisture dataset below.
+
+```{r directory, include = F}
+# soil moisture
+moist23_wide <- read_csv(here("data/warmingmoist23_wide.csv"))
+```
+
+
+## Wrangled
+
+```{r}
+moist23 <- moist23_wide %>% 
+  mutate(diff = pre - post,
+         grav = 100 * (pre - post)/(post)) %>% 
+  pivot_longer(cols = 3:6, names_to = "name", values_to = "value") %>% 
+  mutate_if(is.character, as.factor) %>% 
+  mutate(name = fct_relevel(name, c("pre", "post", "diff"))) %>% 
+  mutate(treatment = fct_relevel(treatment, c("warming", "control")))
+```
+
+# Difference in soil moisture
+
+## Exploration
+
+```{r}
+fig_moist_change <- moist23 %>%
+  filter(name != "diff" &
+           name != "grav") %>%
+  ggplot(aes(
+    x = name,
+    y = value,
+    colour = treatment,
+    group = plot)) +
+  geom_point(alpha = 0.75) +
+  geom_line() +
+  scale_x_discrete(name = "Sampling timepoint") +
+  scale_y_continuous(name = "Soil weight (g)") +
+  scale_colour_brewer(palette = "Set1") +
+  theme_vz()
+
+fig_moist_change
+```
+
+
+## T-test - weight
+
+
+### Normality
+
+Fails assumption of normality.
+
+```{r}
+moist23 %>% 
+  filter(name == "diff") %>% 
+  ggplot(aes(x = value)) +
+  geom_density() +
+  facet_wrap(~ treatment)
+```
+
+Shapiro test for control (difference) p = 0.04
+Shapiro test for warming treatment (difference) p = 0.08
+
+
+### Equal variance
+
+Meets assumption of equal variance:
+
+```{r}
+leveneTest(value ~ treatment, data = moist23[moist23$name == "diff", ])
+```
+
+### Mann-Whitney U-test
+
+```{r}
+wilcox.test(value ~ treatment, data = moist23[moist23$name == "diff", ])
+```
+
+No significant difference in soil moisture lost between the two treatments (p = 0.1022).
+
+## T-test - gravimetric water content
+
+
+```{r}
+moist23 %>% 
+  filter(name == "grav") %>% 
+  ggplot(aes(x = value)) +
+  geom_density() +
+  facet_wrap(~ treatment)
+```
+
+
+Unequal variance:
+
+```{r}
+leveneTest(value ~ treatment, data = moist23[moist23$name == "grav", ])
+```
+
+
+```{r}
+wilcox.test(value ~ treatment, data = moist23[moist23$name == "grav", ])
+```
+
+Significant difference in gravimetric water content between the two treatments (p = 007).
+
+
+## Plot
+
+```{r}
+fig_moist_diff <- moist23 %>%
+  group_by(treatment) %>%
+  filter(name == "diff") %>%
+  summarize(
+    mean = mean(value),
+    sd = sd(value),
+    n = n(),
+    se = sd / sqrt(n)) %>%
+  ggplot(aes(x = treatment, y = mean, fill = treatment)) +
+  geom_col(width = 0.75) +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                colour = "black",
+                width = 0.25) +
+  scale_x_discrete(name = "Treatment",
+                   labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Difference in soil weight (g)",
+                     expand = c(0, 0), limits = c(0, 0.6)) +
+  scale_fill_brewer(name = "Treatment",
+                    palette = "Set1",
+                    guide = "none") +
+  theme_vz()
+
+fig_moist_diff
+```
+
+
+```{r}
+fig_moistperc_diff <- moist23 %>%
+  group_by(treatment) %>%
+  filter(name == "grav") %>%
+  summarize(
+    mean = mean(value),
+    sd = sd(value),
+    n = n(),
+    se = sd / sqrt(n)) %>%
+  ggplot(aes(x = treatment, y = mean, fill = treatment)) +
+  geom_col(width = 0.75, colour = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                colour = "black",
+                width = 0.25) +
+  scale_x_discrete(name = "Treatment",
+                   labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Gravimetric Water Content (%)",
+                     expand = c(0, 0), limits = c(0, 5)) +
+  scale_fill_brewer(name = "Treatment",
+                    palette = "Set1",
+                    guide = "none") +
+  theme_vz()
+
+fig_moistperc_diff
+```

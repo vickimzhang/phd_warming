@@ -1,0 +1,528 @@
+---
+title: "Dataloggers"
+author: "Vicki M. Zhang"
+date: "October 31, 2024"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Setting up
+
+```{r library}
+library(here)
+library(tidyverse)
+library(lubridate)
+library(patchwork)
+```
+
+## Read in data
+```{r}
+# 2022
+datalogger22 <- read_csv(here("data/dataloggers/summer2022/datalogger22.csv"))
+
+# factor datalogger
+datalogger22 <- datalogger22 %>% 
+  mutate(plot = as.integer(plot)) %>% 
+  mutate(treatment = fct_relevel(treatment, c("warming", "control")))
+
+# set dates
+data22 <- datalogger22 %>% 
+  filter(month == 6 & day >= 22 |
+           month == 7 |
+           month == 8 & day < 26)
+
+
+# 2023
+datalogger23 <- read_csv(here("data/dataloggers/summer2023/datalogger23.csv"))
+
+# factor datalogger
+datalogger23 <- datalogger23 %>% 
+  mutate(plot = as.integer(plot)) %>% 
+  mutate(treatment = fct_relevel(treatment, c("warming", "control")))
+
+# set dates
+data23 <- datalogger23 %>% 
+  filter(month == 6 & day >= 9 |
+           month == 7 |
+           month == 8 & day < 21) %>% 
+  filter(plot != 7) # & data from 2022
+
+# 2024
+datalogger24 <- read_csv(here("data/dataloggers/summer2024/datalogger24.csv"))
+
+# factor datalogger
+datalogger24 <- datalogger24 %>% 
+  mutate(plot = as.integer(plot)) %>% 
+  mutate(treatment = fct_relevel(treatment, c("warming", "control")))
+
+# set dates
+data24 <- datalogger24 %>% 
+  filter(month == 6 & day >= 8 |
+           month == 7 |
+           month == 8 & day < 10)
+```
+
+# 2022 
+
+## Hourly & Daytime df
+
+<!-- ```{r average hourly and daily for 40 plots} -->
+<!-- hour22_df <- data22 %>%  -->
+<!--   group_by(plot, treatment, month, day, hour) %>%  -->
+<!--   summarize(temp = mean(temp)) %>%  -->
+<!--   filter(!is.na(temp)) -->
+
+<!-- daily22_df <- data22 %>%  -->
+<!--   group_by(plot, treatment, month, day) %>%  -->
+<!--   summarize(temp = mean(temp)) %>%  -->
+<!--   filter(!is.na(temp)) -->
+<!-- ``` -->
+
+```{r average hourly and daily for 2 treatments}
+hour22_df <- data22 %>% 
+  group_by(treatment, month, Date, hour) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+daily22_df <- data22 %>% 
+  group_by(treatment, month, Date) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+# daytime temperatures by hour
+daily22_day_df <- data22 %>% 
+  group_by(treatment, month, Date, hour) %>% 
+  filter(!is.na(temp)) %>% 
+  filter(8 < hour & hour < 22) %>% 
+  summarize(temp = mean(temp))
+```
+
+```{r wide CHECK}
+# hourly averages
+hour22_df_wide <- hour22_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = treatment, values_from = temp)
+
+# daily averages
+daily22_df_wide <- daily22_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = treatment, values_from = temp)
+```
+
+
+## Save dataframes
+
+<!-- ```{r save averages as df} -->
+<!-- write_csv(data22, here("data/dataloggers/summer2022/data22.csv")) -->
+<!-- write_csv(hour_df, here("data/dataloggers/summer2022/datalogger_hourly_average_df.csv")) -->
+<!-- write_csv(daily_df, here("data/dataloggers/summer2022/datalogger_daily_average_df.csv")) -->
+<!-- ``` -->
+
+## Outlier
+
+```{r outlier}
+data22 %>% 
+  filter(month == 8 & day == 20 & plot == 3) %>% 
+  summarize(max = max(temp))
+```
+
+
+## Summary Statistics
+
+```{r}
+# summary statistics
+daily22_df %>% 
+  group_by(treatment) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+# summary statistics for daytime temperature
+hour22_df %>% 
+  filter(9 < hour & hour < 21) %>% 
+  group_by(treatment) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+```
+
+
+```{r average temp, median}
+daily22_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot() +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  theme_classic()
+```
+
+```{r average temp, as mean}
+fig_tempdaily22 <- daily22_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot(aes(middle = mean(temp)),
+               colour = "black") +
+  geom_point(aes(shape = treatment),
+             colour = "black", size = 1, alpha = 0.5, position = "jitter") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_colour_brewer(palette = "Set1") +
+  scale_shape_manual(values = c(21, 22)) +
+  labs(x = "Treatment",
+       y = "Temperature (°C)") +
+  theme_vz()
+
+# boxplot with mean (not median) plotted as line
+```
+
+## Daily Moving Average
+
+```{r}
+fig_jul22 <- daily22_df %>%
+  ggplot(aes(x = Date, y = temp, colour = treatment)) +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(palette = "Set1") +
+  theme_vz()
+
+fig_jul22
+```
+
+# 2023 
+
+
+## Hourly & Daytime df
+
+```{r average hourly and daily for 2 treatments}
+hour23_df <- data23 %>% 
+  group_by(treatment, month, Date, hour) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+daily23_df <- data23 %>% 
+  group_by(treatment, month, Date) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+# daytime temperatures by hour
+day23_df <- data23 %>% 
+  group_by(treatment, month, Date, hour) %>% 
+  filter(!is.na(temp)) %>% 
+  filter(8 < hour & hour < 22) %>% 
+  summarize(temp = mean(temp))
+```
+
+```{r wide}
+# hourly averages
+hour23_df_wide <- hour23_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = treatment, values_from = temp)
+
+# daily averages
+daily23_df_wide <- daily23_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = treatment, values_from = temp)
+```
+
+
+## Save dataframes
+
+<!-- ```{r save averages as df} -->
+<!-- write_csv(data23, here("data/dataloggers/summer2023/data23.csv")) -->
+<!-- write_csv(hour23_df_wide, here("data/dataloggers/summer2023/datalogger_hourly_average_df.csv")) -->
+<!-- write_csv(daily23_df_wide, here("data/dataloggers/summer2023/datalogger_daily_average_df.csv")) -->
+<!-- ``` -->
+
+
+## Summary Statistics
+
+```{r}
+# summary statistics
+daily23_df %>% 
+  group_by(month, treatment) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+# summary statistics for daytime temperature
+day23_df %>% 
+  group_by(treatment) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+```
+
+
+```{r average temp, median}
+daily23_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot() +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  scale_x_discrete(name = "Treatment",
+                 labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Temperature (°C)") +
+  scale_fill_brewer(name = "Treatment",
+                    labels = c("Warming", "Control"),
+                    palette = "Set1") +
+  scale_shape_manual(name = "Treatment",
+                     labels = c("Warming", "Control"),
+                                values = c(21, 22)) +
+  theme_vz()
+```
+
+```{r 2023 average temp, mean}
+fig_daily23 <- daily23_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot(aes(middle = mean(temp)),
+               colour = "black") +
+  geom_point(aes(shape = treatment),
+             colour = "black", size = 0.5, alpha = 0.5, position = "jitter") +
+  scale_x_discrete(name = "Treatment",
+                 labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Temperature (°C)") +
+  scale_fill_brewer(name = "Treatment",
+                    labels = c("Warming", "Control"),
+                    palette = "Set1") +
+  scale_shape_manual(name = "Treatment",
+                     labels = c("Warming", "Control"),
+                                values = c(21, 22)) +
+  theme_vz()
+
+# boxplot with mean (not median) plotted as line
+fig_daily23
+```
+
+
+```{r 2023 daytime average temp, mean}
+fig_day23 <- day23_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot(aes(middle = mean(temp)),
+               colour = "white") +
+  geom_point(aes(shape = treatment),
+             colour = "white",
+             size = 0.5, alpha = 0.5, position = "jitter") +
+  scale_x_discrete(name = "Treatment",
+                 labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Temperature (°C)") +
+  scale_fill_brewer(name = "Treatment",
+                    labels = c("Warming", "Control"),
+                    palette = "Set1") +
+  scale_shape_manual(name = "Treatment",
+                     labels = c("Warming", "Control"),
+                                values = c(21, 22)) +
+  # theme_vz() +
+  theme_darkclassic()
+
+# boxplot with mean (not median) plotted as line
+fig_day23
+```
+
+## Daily Moving Average
+
+```{r}
+fig_daily_avg23 <- daily23_df %>%
+  ggplot(aes(x = Date, y = temp, colour = treatment)) +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(name = "Treatment",
+                      labels = c("Warming", "Control"),
+                      palette = "Set1",
+                      guide = "none") +
+  scale_x_date(name = "Date (2023)",
+               limits = as.Date(c("2023-06-08", "2023-08-20"))) +
+  scale_y_continuous(name = "Temperature (°C)",
+                     expand = c(0, 0), limits = c(0, 30)) +
+  theme_vz()
+```
+
+# 2024
+
+```{r}
+data24 %>%
+  group_by(plot, treatment) %>%
+  summarize(count = n(),
+            min = min(temp),
+            mean = mean(temp),
+            max = max(temp)) %>% 
+  arrange(mean, max)
+```
+
+## Hourly & Daytime df
+
+```{r average hourly and daily for 40 plots}
+hour24_df <- data24 %>% 
+  group_by(treatment, month, Date, hour) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+daily24_df <- data24 %>% 
+  group_by(treatment, month, Date) %>% 
+  summarize(temp = mean(temp)) %>% 
+  filter(!is.na(temp))
+
+day24_df <- data24 %>% 
+  group_by(treatment, month, Date, hour) %>% 
+  filter(!is.na(temp)) %>% 
+  filter(9 < hour & hour < 21) %>% 
+  summarize(temp = mean(temp))
+```
+
+
+```{r wide}
+# hourly averages
+hour24_df_wide <- hour24_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = treatment, values_from = temp)
+
+# daily averages
+daily24_df_wide <- daily24_df %>% 
+  filter(!is.na(temp)) %>% 
+  pivot_wider(names_from = treatment, values_from = temp)
+```
+
+
+## Save dataframes
+
+<!-- ```{r save averages as df} -->
+<!-- write_csv(data24, here("data/dataloggers/summer2024/data24.csv")) -->
+<!-- write_csv(hour24_df_wide, here("data/dataloggers/summer2024/datalogger_hourly_average_df.csv")) -->
+<!-- write_csv(daily24_df_wide, here("data/dataloggers/summer2024/datalogger_daily_average_df.csv")) -->
+<!-- ``` -->
+
+
+## Summary Statistics
+
+```{r}
+# summary statistics
+daily24_df %>% 
+  group_by(treatment) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+
+# summary statistics for daytime temperature
+day24_df %>% 
+  group_by(treatment) %>% 
+  summarize(mean = mean(temp),
+            min = min(temp),
+            max = max(temp))
+```
+
+
+```{r average temp, median}
+daily24_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot() +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  scale_x_discrete(name = "Treatment",
+                 labels = c("Control", "Warming")) +
+  scale_y_continuous(name = "Temperature (°C)") +
+  scale_fill_brewer(name = "Treatment",
+                    labels = c("Control", "Warming"),
+                    palette = "Set1") +
+  scale_shape_manual(name = "Treatment",
+                     labels = c("Warming", "Control"),
+                                values = c(21, 22)) +
+  theme_vz()
+```
+
+```{r 2024 average temp, mean}
+fig_daily24_boxplot <- daily24_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot(aes(middle = mean(temp)),
+               colour = "black") +
+  geom_point(aes(shape = treatment),
+             colour = "black", size = 0.5, alpha = 0.5, position = "jitter") +
+  scale_x_discrete(name = "Treatment",
+                 labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Temperature (°C)") +
+  scale_fill_brewer(name = "Treatment",
+                    labels = c("Warming", "Control"),
+                    palette = "Set1") +
+  scale_shape_manual(name = "Treatment",
+                     labels = c("Warming", "Control"),
+                                values = c(21, 22)) +
+  theme_vz()
+
+# boxplot with mean (not median) plotted as line
+fig_daily24_boxplot
+```
+
+
+```{r 2024 daytime average temp, mean}
+fig_day24 <- day24_df %>%
+  ggplot(aes(x = treatment, y = temp, fill = treatment)) +
+  geom_boxplot(aes(middle = mean(temp)),
+               colour = "white") +
+  geom_point(aes(shape = treatment),
+             colour = "white",
+             size = 0.5, alpha = 0.5, position = "jitter") +
+  scale_x_discrete(name = "Treatment",
+                 labels = c("Warming", "Control")) +
+  scale_y_continuous(name = "Temperature (°C)") +
+  scale_fill_brewer(name = "Treatment",
+                    labels = c("Warming", "Control"),
+                    palette = "Set1") +
+  scale_shape_manual(name = "Treatment",
+                     labels = c("Warming", "Control"),
+                                values = c(21, 22)) +
+  # theme_vz() +
+  theme_darkclassic()
+
+# boxplot with mean (not median) plotted as line
+fig_day24
+```
+## Daily Moving Averages
+
+```{r}
+fig_daily_avg24 <- daily24_df %>% 
+  ggplot(aes(x = Date, y = temp, colour = treatment)) +
+  geom_line() +
+  geom_point(alpha = 0.5, size = 0.2, position = "jitter") +
+  geom_line() +
+  scale_colour_brewer(name = "Treatment",
+                      labels = c("Warming", "Control"),
+                      palette = "Set1") +
+  scale_x_date(name = "Date (2024)",
+               limits = as.Date(c("2024-06-08", "2024-08-20"))) +
+  scale_y_continuous(name = "Temperature (°C)",
+                     expand = c(0, 0), limits = c(0, 30)) +
+  theme_vz() +
+  theme(legend.position = "none")
+```
+
+# Combined Figure
+
+```{r}
+fig_warmingtemp <- fig_daily_avg23 + fig_daily_avg24 +
+  plot_layout(guides = "collect", ncol = 2) +
+  plot_annotation(tag_levels = list(c("C", "D"))) & 
+  # theme_darkclassic() +
+  theme_vz() 
+```
+
+# Other
+
+* datalogger: graph, calculate daily mean, max, min temperatures; look at how other research report datalogger data
+  * temperatures at 9, 12, 3, 6, 9
+* line graph by plot, coloured by treatment
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
